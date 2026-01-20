@@ -1,5 +1,5 @@
-import { fetchKlines } from "../../../lib/binance";
-import { zscoreSeries } from "../../../lib/stats";
+import { fetchKlines } from "../../lib/binance";
+import { zscoreSeries } from "../../lib/stats";
 
 export async function GET() {
   const btc = await fetchKlines("BTCUSDT", "1h", 200);
