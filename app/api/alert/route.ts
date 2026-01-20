@@ -1,11 +1,10 @@
-import { sendTelegram } from "@/lib/telegram";
-import { fetchKlines } from "@/lib/binance";
-import { zscore } from "@/lib/stats";
+import { sendTelegram } from "../../../lib/telegram";
+import { fetchKlines } from "../../../lib/binance";
+import { zscore } from "../../../lib/stats";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
 
-  // optional secret protection
   if (process.env.ALERT_SECRET && url.searchParams.get("secret") !== process.env.ALERT_SECRET) {
     return new Response("forbidden", { status: 403 });
   }
@@ -13,7 +12,7 @@ export async function GET(req: Request) {
   const btc = await fetchKlines("BTCUSDT", "1h", 200);
   const eth = await fetchKlines("ETHUSDT", "1h", 200);
 
-  const spread = btc.map((b, i) => Math.log(b.c / eth[i].c));
+  const spread = btc.map((b: any, i: number) => Math.log(b.c / eth[i].c));
   const z = zscore(spread, 168);
 
   const prev = z[z.length - 2];
