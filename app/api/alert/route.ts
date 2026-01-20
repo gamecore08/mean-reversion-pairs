@@ -1,6 +1,6 @@
-import { sendTelegram } from "../../../lib/telegram";
-import { fetchKlines } from "../../../lib/binance";
-import { zscoreSeries } from "../../../lib/stats";
+import { sendTelegram } from "../../lib/telegram";
+import { fetchKlines } from "../../lib/binance";
+import { zscoreSeries } from "../../lib/stats";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
