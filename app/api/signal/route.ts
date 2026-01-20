@@ -2,13 +2,24 @@ import { fetchKlines } from "../../lib/binance";
 import { zscoreSeries } from "../../lib/stats";
 
 export async function GET() {
-  const btc = await fetchKlines("BTCUSDT", "1h", 200);
-  const eth = await fetchKlines("ETHUSDT", "1h", 200);
+  try {
+    const btc = await fetchKlines("BTCUSDT", "1h", 200);
+    const eth = await fetchKlines("ETHUSDT", "1h", 200);
 
-  const spread = btc.map((b, i) => Math.log(b.close / eth[i].close));
-  const z = zscoreSeries(spread, 168);
+    const n = Math.min(btc.length, eth.length);
+    const btc2 = btc.slice(-n);
+    const eth2 = eth.slice(-n);
 
-  return new Response(JSON.stringify({ btc, eth, spread, z }), {
-    headers: { "Content-Type": "application/json" },
-  });
+    const spread = btc2.map((b, i) => Math.log(b.close / eth2[i].close));
+    const z = zscoreSeries(spread, 168);
+
+    return new Response(JSON.stringify({ btc: btc2, eth: eth2, spread, z }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }
