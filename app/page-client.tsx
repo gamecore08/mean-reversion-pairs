@@ -60,6 +60,43 @@ export default function PageClient() {
   const wsA = useRef<WebSocket | null>(null);
   const wsB = useRef<WebSocket | null>(null);
 
+  // Telegram alerts (optional; works when dashboard is open)
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
+  const [telegramCooldownMin, setTelegramCooldownMin] = useState(5);
+  const [telegramStatus, setTelegramStatus] = useState<string | null>(null);
+
+  const lastAlertRef = useRef<{ key: string; ts: number } | null>(null);
+  const prevZRef = useRef<number | null>(null);
+  const inTradeRef = useRef<boolean>(false);
+
+  async function telegramAlert(msg: string) {
+    try {
+      const r = await fetch('/api/telegram/send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: msg }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || j?.ok === false) {
+        setTelegramStatus(j?.error ? `Telegram error: ${j.error}` : 'Telegram error');
+      } else {
+        setTelegramStatus('Telegram sent');
+        setTimeout(() => setTelegramStatus(null), 2500);
+      }
+    } catch {
+      setTelegramStatus('Telegram error');
+    }
+  }
+
+  function shouldSend(key: string, cooldownMin: number) {
+    const now = Date.now();
+    const cooldownMs = Math.max(0, cooldownMin) * 60 * 1000;
+    const last = lastAlertRef.current;
+    if (last && last.key === key && now - last.ts < cooldownMs) return false;
+    lastAlertRef.current = { key, ts: now };
+    return true;
+  }
+
   // Load historical data (REST)
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +225,55 @@ export default function PageClient() {
     return { beta, spreadNow, z, m, sd, action };
   }, [points, lastPriceA, lastPriceB, lookbackBeta, lookbackZ, entryZ]);
 
+  // Telegram: fire on threshold crossings (entry/exit)
+  useEffect(() => {
+    if (!telegramEnabled || !derived) return;
+
+    const z = derived.z;
+    const prev = prevZRef.current;
+    prevZRef.current = z;
+
+    const absZ = Math.abs(z);
+    const prevAbs = prev == null ? null : Math.abs(prev);
+
+    // ENTRY crossing
+    if (prev != null) {
+      if (prev < entryZ && z >= entryZ) {
+        const key = `ENTRY_POS_${symbolA}_${symbolB}`;
+        if (shouldSend(key, telegramCooldownMin)) {
+          inTradeRef.current = true;
+          void telegramAlert(`📣 ENTRY (Z>=+Entry)
+Pair: ${symbolA}/${symbolB}
+Z: ${z.toFixed(2)}σ (Entry ${entryZ})
+Action: SHORT ${symbolA}, LONG ${symbolB}
+TF: ${interval}`);
+        }
+      } else if (prev > -entryZ && z <= -entryZ) {
+        const key = `ENTRY_NEG_${symbolA}_${symbolB}`;
+        if (shouldSend(key, telegramCooldownMin)) {
+          inTradeRef.current = true;
+          void telegramAlert(`📣 ENTRY (Z<=-Entry)
+Pair: ${symbolA}/${symbolB}
+Z: ${z.toFixed(2)}σ (Entry ${entryZ})
+Action: LONG ${symbolA}, SHORT ${symbolB}
+TF: ${interval}`);
+        }
+      }
+    }
+
+    // EXIT crossing (only after we ever had an entry)
+    if (inTradeRef.current && prevAbs != null && prevAbs > exitZ && absZ <= exitZ) {
+      const key = `EXIT_${symbolA}_${symbolB}`;
+      if (shouldSend(key, telegramCooldownMin)) {
+        inTradeRef.current = false;
+        void telegramAlert(`✅ EXIT (|Z|<=Exit)
+Pair: ${symbolA}/${symbolB}
+|Z|: ${absZ.toFixed(2)}σ (Exit ${exitZ})
+TF: ${interval}`);
+      }
+    }
+  }, [telegramEnabled, telegramCooldownMin, derived, entryZ, exitZ, symbolA, symbolB, interval]);
+
   const zSeries = useMemo(() => points.map((p) => ({ t: p.t, z: p.z })), [points]);
   const priceSeries = useMemo(() => points.map((p) => ({ t: p.t, A: p.A, B: p.B })), [points]);
 
@@ -311,6 +397,38 @@ export default function PageClient() {
                 className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 px-3 py-2 outline-none focus:border-zinc-600"
               />
             </div>
+          </div>
+
+          <div className="mt-4 rounded-xl bg-zinc-950 border border-zinc-800 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs text-zinc-400">Telegram Alert</div>
+                <label className="mt-1 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={telegramEnabled}
+                    onChange={(e) => setTelegramEnabled(e.target.checked)}
+                  />
+                  Enable (only works while dashboard is open)
+                </label>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-zinc-400">Cooldown</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={120}
+                  value={telegramCooldownMin}
+                  onChange={(e) => setTelegramCooldownMin(Number(e.target.value))}
+                  className="mt-1 w-24 rounded-xl bg-zinc-900 border border-zinc-800 px-3 py-2 outline-none focus:border-zinc-600"
+                />
+                <div className="text-xs text-zinc-500 mt-1">minutes</div>
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              Set env vars on Vercel: <b>TELEGRAM_BOT_TOKEN</b> and <b>TELEGRAM_CHAT_ID</b>.
+            </div>
+            {telegramStatus && <div className="mt-2 text-xs text-zinc-300">{telegramStatus}</div>}
           </div>
 
           {err && <div className="mt-3 text-sm text-red-300">Error: {err}</div>}
