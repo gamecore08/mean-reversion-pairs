@@ -1,6 +1,6 @@
 import { sendTelegram } from "../../../lib/telegram";
 import { fetchKlines } from "../../../lib/binance";
-import { zscore } from "../../../lib/stats";
+import { zscoreSeries } from "../../../lib/stats";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -12,16 +12,26 @@ export async function GET(req: Request) {
   const btc = await fetchKlines("BTCUSDT", "1h", 200);
   const eth = await fetchKlines("ETHUSDT", "1h", 200);
 
-  const spread = btc.map((b: any, i: number) => Math.log(b.c / eth[i].c));
-  const z = zscore(spread, 168);
+  // spread = ln(BTC/ETH)
+  const spread = btc.map((b, i) => Math.log(b.close / eth[i].close));
 
+  const z = zscoreSeries(spread, 168);
   const prev = z[z.length - 2];
   const cur = z[z.length - 1];
+
+  // kalau z masih NaN (awal data), jangan ngapa-ngapain
+  if (!Number.isFinite(prev) || !Number.isFinite(cur)) {
+    return new Response(JSON.stringify({ z: cur }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   if (prev < 2 && cur >= 2) await sendTelegram(`ENTRY SHORT BTC / LONG ETH | z=${cur.toFixed(2)}`);
   if (prev > -2 && cur <= -2) await sendTelegram(`ENTRY LONG BTC / SHORT ETH | z=${cur.toFixed(2)}`);
   if (Math.abs(prev) > 0.7 && Math.abs(cur) <= 0.7) await sendTelegram(`EXIT | z=${cur.toFixed(2)}`);
   if (Math.abs(prev) < 3 && Math.abs(cur) >= 3) await sendTelegram(`RISK | z=${cur.toFixed(2)}`);
 
-  return Response.json({ z: cur });
+  return new Response(JSON.stringify({ z: cur }), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
