@@ -8,29 +8,54 @@ export type Kline = {
   volume: number;
 };
 
-const BINANCE_REST = "https://api.binance.com";
+const BINANCE_HOSTS = [
+  "https://api.binance.com",
+  "https://api1.binance.com",
+  "https://api2.binance.com",
+  "https://api3.binance.com",
+  "https://data-api.binance.vision",
+];
 
-export async function fetchKlines(symbol: string, interval: string, limit: number): Promise<Kline[]> {
-  const url = new URL("/api/v3/klines", BINANCE_REST);
-  url.searchParams.set("symbol", symbol.toUpperCase());
-  url.searchParams.set("interval", interval);
-  url.searchParams.set("limit", String(limit));
+async function fetchJsonWithFallback(
+  path: string,
+  params: Record<string, string>
+): Promise<any> {
+  let lastErr: any = null;
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  if (!res.ok) throw new Error(`Binance REST error ${res.status}`);
-  const data = (await res.json()) as any[];
+  for (const host of BINANCE_HOSTS) {
+    try {
+      const url = new URL(path, host);
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  // Kline array format:
-  // [
-  //  0 open time,
-  //  1 open,
-  //  2 high,
-  //  3 low,
-  //  4 close,
-  //  5 volume,
-  //  6 close time, ...
-  // ]
-  return data.map(d => ({
+      const res = await fetch(url.toString(), { cache: "no-store" });
+
+      if (!res.ok) {
+        lastErr = new Error(`Binance REST error ${res.status} via ${host}`);
+        continue;
+      }
+
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+  }
+
+  throw lastErr ?? new Error("Binance REST error (all hosts failed)");
+}
+
+export async function fetchKlines(
+  symbol: string,
+  interval: string,
+  limit: number
+): Promise<Kline[]> {
+  const data = (await fetchJsonWithFallback("/api/v3/klines", {
+    symbol: symbol.toUpperCase(),
+    interval,
+    limit: String(limit),
+  })) as any[];
+
+  return data.map((d) => ({
     openTime: Number(d[0]),
     closeTime: Number(d[6]),
     open: Number(d[1]),
@@ -41,13 +66,6 @@ export async function fetchKlines(symbol: string, interval: string, limit: numbe
   }));
 }
 
-/**
- * Browser-side websocket for realtime (no VPS).
- * Uses "miniTicker" stream for each symbol.
- *
- * Example: wss://stream.binance.com:9443/ws/btcusdt@miniTicker
- */
-export function makeMiniTickerWs(symbolLower: string): WebSocket {
-  const url = `wss://stream.binance.com:9443/ws/${symbolLower}@miniticker`;
-  return new WebSocket(url);
-}
+// NOTE:
+// makeMiniTickerWs sengaja dihapus dulu biar aman di Vercel server runtime.
+// Kalau nanti mau realtime di UI (client-side), kita bisa bikin file khusus client.
