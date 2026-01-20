@@ -9,6 +9,8 @@ export async function GET(req: Request) {
       return new Response("forbidden", { status: 403 });
     }
 
+    await sendTelegram("✅ TEST: Telegram alert route OK");
+
     const btc = await fetchKlines("BTCUSDT", "1h", 200);
     const eth = await fetchKlines("ETHUSDT", "1h", 200);
 
